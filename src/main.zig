@@ -2,6 +2,7 @@ const std = @import("std");
 const device = @import("input/device.zig");
 var debug_allocator = std.heap.DebugAllocator(.{}){};
 const dba = debug_allocator.allocator();
+const InputDevice = device.InputDevice;
 
 pub fn main(init: std.process.Init) !void {
     defer _ = debug_allocator.deinit();
@@ -11,7 +12,7 @@ pub fn main(init: std.process.Init) !void {
     const stdout = &stdout_writer.interface;
     const stdin = &stdin_reader.interface;
     _ = stdin;
-    // _ = stdout;
+    _ = stdout;
     // var in_buf: [100]u8 = undefined;
 
     // const cwd = std.Io.Dir.cwd();
@@ -30,25 +31,27 @@ pub fn main(init: std.process.Init) !void {
 
     var iterator = dir.iterate();
 
-    var devices = std.ArrayList(device.InputDevice).empty;
+    var devices = std.ArrayList(InputDevice).empty;
     defer devices.deinit(dba);
 
     while (try iterator.next(io)) |entry| {
         if (entry.kind == .character_device and std.mem.startsWith(u8, entry.name, "event")) {
-            const dev = try device.InputDevice.init(dba, io, entry);
+            const dev = try InputDevice.init(dba, io, entry);
             try devices.append(dba, dev);
         }
     }
 
     defer {
-        for (devices.items) |dev| {
-            dev.deinit(dba);
+        for (devices.items) |*dev| {
+            dev.deinit(dba, io);
         }
     }
 
-    for (devices.items) |dev| {
-        try stdout.print("{s}\n", .{dev.name});
-    }
+    // for (devices.items) |dev| {
+    //     try stdout.print("{s}    {s}\n", .{dev.path, dev.name});
+    // }
+
+    try device.listenAll(devices.items, dba, io);
 }
 
 fn getDevices() !void {
@@ -86,8 +89,9 @@ fn getDevices() !void {
     // }
 }
 
-fn monitorDevices() !void {
+fn monitorDevices(devices: []InputDevice) !void {
     // 3. monitor devices using poll()
     // 4. read input from devices
     //    kernel provides inputs in the form of struct input_event
+    _ = devices;
 }
