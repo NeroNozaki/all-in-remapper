@@ -1,97 +1,79 @@
 const std = @import("std");
-const device = @import("input/device.zig");
+const backend = @import("backend");
+const device = @import("device");
+const help = @import("build_options").help_text;
+const Allocator = std.mem.Allocator;
+
 var debug_allocator = std.heap.DebugAllocator(.{}){};
 const dba = debug_allocator.allocator();
-const InputDevice = device.InputDevice;
+const InputDevice = backend.InputDevice;
+const Monitor = backend.Monitor;
+
+const CommandType = enum {
+    help,
+    list,
+    monitor,
+    unknown,
+};
 
 pub fn main(init: std.process.Init) !void {
     defer _ = debug_allocator.deinit();
+    const arena = init.arena.allocator();
     const io = init.io;
     var stdout_writer = std.Io.File.stdout().writer(io, &.{});
     var stdin_reader = std.Io.File.stdin().reader(io, &.{});
     const stdout = &stdout_writer.interface;
     const stdin = &stdin_reader.interface;
     _ = stdin;
-    _ = stdout;
-    // var in_buf: [100]u8 = undefined;
+    // _ = stdout;
 
-    // const cwd = std.Io.Dir.cwd();
-    // const length =  try std.process.currentPath(io, &in_buf);
-    // const cwd_path = in_buf[0..length];
+    var command: CommandType = .unknown;
 
-    const input_directory = "/dev/input/";
+    var args = try init.minimal.args.toSlice(arena);
+    args = args[1..];
 
-    const dir = std.Io.Dir.openDirAbsolute(io, input_directory, .{
-        .access_sub_paths = true,
-        .iterate = true,
-    }) catch |err| {
-        std.debug.print("this directory does not exist.", .{});
-        return err;
-    };
+    if (args.len < 1 or std.mem.eql(u8, args[0], "--help")) {
+        command = .help;
+    }
 
-    var iterator = dir.iterate();
-
-    var devices = std.ArrayList(InputDevice).empty;
-    defer devices.deinit(dba);
-
-    while (try iterator.next(io)) |entry| {
-        if (entry.kind == .character_device and std.mem.startsWith(u8, entry.name, "event")) {
-            const dev = try InputDevice.init(dba, io, entry);
-            try devices.append(dba, dev);
+    if (args.len != 0) {
+        if (std.mem.eql(u8, args[0], "list")) {
+            command = .list;
+        } else if (std.mem.eql(u8, args[0], "monitor")) {
+            command = .monitor;
+        } else {
+            command = .unknown;
         }
     }
 
+    const devices = try device.list(dba, io);
     defer {
-        for (devices.items) |*dev| {
-            dev.deinit(dba, io);
+        for (devices) |*dev| dev.deinit(dba, io);
+        dba.free(devices);
+    }
+
+    switch (command) {
+        .help => {
+            try stdout.print("{s}\n", .{help});
+            return;
+        },
+        .list => try listDevices(stdout, devices),
+        .monitor => try Monitor.listenAll(devices, dba, io),
+        else => {
+            std.debug.print("unsupported command.\n", .{});
         }
     }
 
-    // for (devices.items) |dev| {
-    //     try stdout.print("{s}    {s}\n", .{dev.path, dev.name});
-    // }
-
-    try device.listenAll(devices.items, dba, io);
+    std.debug.print("\nargs:\n", .{});
+    for (args) |arg| {
+        std.debug.print("\t{s}\n", .{arg});
+    }
 }
 
-fn getDevices() !void {
-    // 1. discover input devices by listing out /dev/input/
-    // 2. identify devices using ioctl() and EVIOCGNAME
-
-
-    // for (devices.items) |device| {
-    //     try stdout.print("{s}\n", .{device.name});
-    // }
-
-    // const device_path = input_directory ++ devices.items[0].name;
-
-    // for (devices.items) |entry| {
-    //     const device = dir.openFile(io, entry.name, .{
-    //         .mode = .read_only,
-    //     }) catch |err| {
-    //         std.debug.print("this device doesn't exist\n", .{});
-    //         return err;
-    //     };
-    //
-    //     defer device.close(io);
-    //
-    //     var name: [256]u8 = undefined;
-    //     var names = std.ArrayList([]u8).empty;
-    //     defer names.deinit(dba);
-    //     const result = c.ioctl(device.handle, c.EVIOCGNAME(name.len), &name);
-    //
-    //     if (result <= 0) {
-    //         std.debug.print("failed to read {s}\n", .{entry.name});
-    //         continue;
-    //     }
-    //
-    //     names.append(dba, name[0..@intCast(result)]);
-    // }
-}
-
-fn monitorDevices(devices: []InputDevice) !void {
-    // 3. monitor devices using poll()
-    // 4. read input from devices
-    //    kernel provides inputs in the form of struct input_event
-    _ = devices;
+fn listDevices(stdout: *std.Io.Writer, devices: []InputDevice) !void {
+    for (devices, 0..) |*dev, i| {
+        if (i != 0) try stdout.writeByte('\n');
+        try stdout.writeAll(dev.name);
+    }
+    try stdout.writeByte('\n');
 }

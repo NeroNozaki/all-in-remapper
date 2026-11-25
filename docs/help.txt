@@ -1,0 +1,6 @@
+usage:
+    commands:
+        list        lists all input devices by name
+        monitor     watches events from the input devices
+    flags:
+        --help      prints this help
