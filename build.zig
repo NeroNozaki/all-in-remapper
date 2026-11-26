@@ -31,6 +31,35 @@ pub fn build(b: *std.Build) void {
         }},
     });
 
+    const devices_cmd_module = b.createModule(.{
+        .root_source_file = b.path("src/commands/devices.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "backend",
+                .module = backend_module,
+            },
+
+            .{
+                .name = "device",
+                .module = device_module,
+            },
+        },
+    });
+
+    const cmd_module = b.createModule(.{
+        .root_source_file = b.path("src/commands/cmd.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "devices",
+                .module = devices_cmd_module,
+            },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "air",
         .root_module = b.createModule(.{
@@ -47,6 +76,11 @@ pub fn build(b: *std.Build) void {
                     .name = "device",
                     .module = device_module,
                 },
+
+                .{
+                    .name = "cmd",
+                    .module = cmd_module,
+                }
             },
         }),
     });
@@ -69,6 +103,4 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
     run_cmd.addPassthruArgs();
-
-    std.debug.print("program compiled successfully ^_^\n", .{});
 }

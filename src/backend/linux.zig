@@ -9,9 +9,10 @@ pub const input_directory = "/dev/input/";
 
 pub const InputDevice = struct {
     const Self = @This();
-    name: []const u8,
-    path: []const u8,
-    id: c.input_id,
+    name: ?[]const u8,
+    path:  []const u8,
+    id:   ?c.input_id,
+    phys: ?[]const u8,
     file: ?Io.File = null,
 
     pub fn init(allocator: Allocator, io: std.Io, device_entry: std.Io.Dir.Entry) !Self {
@@ -22,26 +23,44 @@ pub const InputDevice = struct {
 
         const file = try std.Io.Dir.openFileAbsolute(io, path, .{ .mode = .read_only });
         defer file.close(io);
+
         var buf: [256]u8 = undefined;
 
+        var name: ?[]const u8 = null;
+        errdefer if (name) |n| allocator.free(n);
+
         var result = linux.ioctl(file.handle, c.EVIOCGNAME(buf.len), @intFromPtr(&buf));
-        if (linux.errno(result) != .SUCCESS) { return error.DeviceNameUnavailable; }
-        // const result = c.ioctl(file.handle, c.EVIOCGNAME(buf.len), &buf);
-        // if (result < 0) { return error.DeviceNameUnavailable; }
+        if (linux.errno(result) == .SUCCESS) {
+            name = try allocator.dupe(u8, std.mem.sliceTo(buf[0..result], 0));
+        }
 
-        const name = try allocator.dupe(u8, std.mem.sliceTo(buf[0..result], 0));
-        errdefer allocator.free(name);
+        var id: ?c.input_id = null;
+        var value: c.input_id = undefined;
+        result = linux.ioctl(file.handle, c.EVIOCGID, @intFromPtr(&value));
+        if (linux.errno(result) == .SUCCESS) { id = value; }
 
-        var id: c.input_id = undefined;
-        result = linux.ioctl(file.handle, c.EVIOCGID, @intFromPtr(&id));
+        var phys: ?[]const u8 = null;
+        errdefer if (phys) |p| allocator.free(p);
 
-        return .{ .name = name, .path = path, .id = id, };
+        result = linux.ioctl(file.handle, c.EVIOCGPHYS(buf.len), @intFromPtr(&buf));
+        if (linux.errno(result) == .SUCCESS) {
+            phys = try allocator.dupe(u8, std.mem.sliceTo(buf[0..result], 0));
+        }
+
+
+        return .{
+            .name = name,
+            .path = path,
+            .id = id,
+            .phys = phys,
+        };
     }
 
     pub fn deinit(this: *Self, allocator: Allocator, io: Io) void {
         this.close(io);
-        allocator.free(this.name);
+        if (this.name) |name| allocator.free(name);
         allocator.free(this.path);
+        if (this.phys) |phys| allocator.free(phys);
     }
 
     pub fn open(this: *Self, io: Io) !void {
@@ -62,11 +81,15 @@ pub const InputDevice = struct {
     pub fn listen(this: *Self, allocator: Allocator, io: Io) !void {
         Monitor.listenAll(this[0..1], allocator, io);
     }
+
+    pub fn displayName(this: *const Self) []const u8 {
+        return this.name orelse this.path;
+    }
 };
 
 pub const Monitor = struct {
 
-    pub fn listenAll(devices: []InputDevice, allocator: Allocator, io: Io) !void {
+    pub fn listenAll(stdout: *std.Io.Writer, allocator: Allocator, io: Io, devices: []InputDevice) !void {
         if (devices.len == 0) return error.NoDevices;
 
         const pollfds = try allocator.alloc(std.posix.pollfd, devices.len);
@@ -74,7 +97,7 @@ pub const Monitor = struct {
 
         for (devices, pollfds) |*dev, *pfd| {
             dev.open(io) catch {
-                std.debug.print("couldn't open device {s}\n", .{dev.name});
+                std.debug.print("couldn't open device {s}\n", .{dev.displayName()});
                 pfd.* = .{
                     .fd = -1,
                     .events = 0,
@@ -115,7 +138,7 @@ pub const Monitor = struct {
                         const changed = prev_index == null or prev_index.? != i;
 
                         if (changed) {
-                            std.debug.print("{s}\n", .{dev.name});
+                            try stdout.print("{s}\n", .{dev.displayName()});
                             prev_index = i;
                         }
                     }

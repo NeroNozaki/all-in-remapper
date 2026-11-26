@@ -2,8 +2,9 @@ const std = @import("std");
 const backend = @import("backend");
 const device = @import("device");
 const help = @import("build_options").help_text;
-const Allocator = std.mem.Allocator;
+const cmd = @import("cmd");
 
+const Allocator = std.mem.Allocator;
 var debug_allocator = std.heap.DebugAllocator(.{}){};
 const dba = debug_allocator.allocator();
 const InputDevice = backend.InputDevice;
@@ -11,7 +12,7 @@ const Monitor = backend.Monitor;
 
 const CommandType = enum {
     help,
-    list,
+    devices,
     monitor,
     unknown,
     @"test",
@@ -35,21 +36,24 @@ pub fn main(init: std.process.Init) !void {
 
     if (args.len < 1 or std.mem.eql(u8, args[0], "--help")) {
         command = .help;
+    }else if (std.mem.eql(u8, args[0], "devices")) {
+        command = .devices;
+    } else if (std.mem.eql(u8, args[0], "monitor")) {
+        command = .monitor;
+    } else if (std.mem.eql(u8, args[0], "test")) {
+        command = .@"test";
+    } else {
+        command = .unknown;
     }
 
-    if (args.len != 0) {
-        if (std.mem.eql(u8, args[0], "list")) {
-            command = .list;
-        } else if (std.mem.eql(u8, args[0], "monitor")) {
-            command = .monitor;
-        } else if (std.mem.eql(u8, args[0], "test")) {
-            command = .@"test";
-        } else {
-            command = .unknown;
-        }
+    var devices: []InputDevice = undefined;
+
+    if (command == .help) {
+        try stdout.print("{s}\n", .{help});
+        return;
     }
 
-    const devices = try device.list(dba, io);
+    devices = try device.list(dba, io);
     defer {
         for (devices) |*dev| dev.deinit(dba, io);
         dba.free(devices);
@@ -57,40 +61,48 @@ pub fn main(init: std.process.Init) !void {
 
     switch (command) {
         .help => {
-            try stdout.print("{s}\n", .{help});
-            return;
         },
-        .list => try listDevices(stdout, devices),
-        .monitor => try Monitor.listenAll(devices, dba, io),
+        .devices => try cmd.devices.run(args[1..], stdout, devices),
+        .monitor => try Monitor.listenAll(stdout, dba, io, devices),
         .@"test" => try @"test"(devices),
         else => {
             std.debug.print("unsupported command.\n", .{});
         }
     }
 
-    std.debug.print("\nargs:\n", .{});
+    std.debug.print("args:", .{});
     for (args) |arg| {
-        std.debug.print("\t{s}\n", .{arg});
+        std.debug.print(" {s}", .{arg});
     }
+    std.debug.print("\n", .{});
 }
 
 fn listDevices(stdout: *std.Io.Writer, devices: []InputDevice) !void {
     for (devices, 0..) |*dev, i| {
         if (i != 0) try stdout.writeByte('\n');
-        try stdout.writeAll(dev.name);
+        try stdout.print("{s}:\n", .{dev.displayName()});
+        try stdout.print("  path: {s}\n", .{dev.path});
+        try stdout.print("  id:\n", .{});
+        try stdout.print("    bustype: {d}\n", .{dev.id.?.bustype});
+        try stdout.print("    vendor: {d}\n", .{dev.id.?.vendor});
+        try stdout.print("    product: {d}\n", .{dev.id.?.product});
+        try stdout.print("    version: {d}\n", .{dev.id.?.version});
+        try stdout.print("  physical location: {s}\n", .{dev.phys orelse "unknown"});
+        try stdout.writeByte('\n');
     }
-    try stdout.writeByte('\n');
 }
 
 fn @"test"(devices: []InputDevice) !void {
     for (devices) |*dev| {
-        std.debug.print("{s}:\n", .{dev.name});
-        std.debug.print("\tpath: {s}\n", .{dev.path});
-        std.debug.print("\tid:\n", .{});
-        std.debug.print("\t\tbustype: {d}\n", .{dev.id.bustype});
-        std.debug.print("\t\tvendor: {d}\n", .{dev.id.vendor});
-        std.debug.print("\t\tproduct: {d}\n", .{dev.id.product});
-        std.debug.print("\t\tversion: {d}\n", .{dev.id.version});
+        std.debug.print("{s}:\n", .{dev.displayName()});
+        std.debug.print("  path: {s}\n", .{dev.path});
+        std.debug.print("  id:\n", .{});
+        std.debug.print("    bustype: {d}\n", .{dev.id.?.bustype});
+        std.debug.print("    vendor: {d}\n", .{dev.id.?.vendor});
+        std.debug.print("    product: {d}\n", .{dev.id.?.product});
+        std.debug.print("    version: {d}\n", .{dev.id.?.version});
+        std.debug.print("  physical location: {s}\n", .{dev.phys orelse "unknown"});
+        std.debug.print("\n", .{});
     }
     std.debug.print("\n", .{});
 }

@@ -29,7 +29,10 @@ pub fn list(allocator: Allocator, io: Io) ![]InputDevice {
 
     while (try iterator.next(io)) |entry| {
         if (entry.kind == .character_device and std.mem.startsWith(u8, entry.name, "event")) {
-            var dev = try InputDevice.init(allocator, io, entry);
+            var dev = InputDevice.init(allocator, io, entry) catch |err| {
+                std.log.err("skipping {s}: {t}\n", .{entry.name, err});
+                continue;
+            };
             errdefer dev.deinit(allocator, io);
             try devices.append(allocator, dev);
         }
