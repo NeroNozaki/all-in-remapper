@@ -11,6 +11,7 @@ pub const InputDevice = struct {
     const Self = @This();
     name: []const u8,
     path: []const u8,
+    id: c.input_id,
     file: ?Io.File = null,
 
     pub fn init(allocator: Allocator, io: std.Io, device_entry: std.Io.Dir.Entry) !Self {
@@ -23,7 +24,7 @@ pub const InputDevice = struct {
         defer file.close(io);
         var buf: [256]u8 = undefined;
 
-        const result = linux.ioctl(file.handle, c.EVIOCGNAME(buf.len), @intFromPtr(&buf));
+        var result = linux.ioctl(file.handle, c.EVIOCGNAME(buf.len), @intFromPtr(&buf));
         if (linux.errno(result) != .SUCCESS) { return error.DeviceNameUnavailable; }
         // const result = c.ioctl(file.handle, c.EVIOCGNAME(buf.len), &buf);
         // if (result < 0) { return error.DeviceNameUnavailable; }
@@ -31,7 +32,10 @@ pub const InputDevice = struct {
         const name = try allocator.dupe(u8, std.mem.sliceTo(buf[0..result], 0));
         errdefer allocator.free(name);
 
-        return .{ .name = name, .path = path };
+        var id: c.input_id = undefined;
+        result = linux.ioctl(file.handle, c.EVIOCGID, @intFromPtr(&id));
+
+        return .{ .name = name, .path = path, .id = id, };
     }
 
     pub fn deinit(this: *Self, allocator: Allocator, io: Io) void {

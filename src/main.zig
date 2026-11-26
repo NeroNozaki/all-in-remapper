@@ -14,6 +14,7 @@ const CommandType = enum {
     list,
     monitor,
     unknown,
+    @"test",
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -41,6 +42,8 @@ pub fn main(init: std.process.Init) !void {
             command = .list;
         } else if (std.mem.eql(u8, args[0], "monitor")) {
             command = .monitor;
+        } else if (std.mem.eql(u8, args[0], "test")) {
+            command = .@"test";
         } else {
             command = .unknown;
         }
@@ -59,6 +62,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .list => try listDevices(stdout, devices),
         .monitor => try Monitor.listenAll(devices, dba, io),
+        .@"test" => try @"test"(devices),
         else => {
             std.debug.print("unsupported command.\n", .{});
         }
@@ -76,4 +80,17 @@ fn listDevices(stdout: *std.Io.Writer, devices: []InputDevice) !void {
         try stdout.writeAll(dev.name);
     }
     try stdout.writeByte('\n');
+}
+
+fn @"test"(devices: []InputDevice) !void {
+    for (devices) |*dev| {
+        std.debug.print("{s}:\n", .{dev.name});
+        std.debug.print("\tpath: {s}\n", .{dev.path});
+        std.debug.print("\tid:\n", .{});
+        std.debug.print("\t\tbustype: {d}\n", .{dev.id.bustype});
+        std.debug.print("\t\tvendor: {d}\n", .{dev.id.vendor});
+        std.debug.print("\t\tproduct: {d}\n", .{dev.id.product});
+        std.debug.print("\t\tversion: {d}\n", .{dev.id.version});
+    }
+    std.debug.print("\n", .{});
 }
